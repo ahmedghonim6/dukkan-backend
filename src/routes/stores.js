@@ -36,3 +36,5 @@ router.get('/', async (req, res) => {
   if (error) return res.status(500).json({ message: error.message })
   res.json({ stores: data })
 })
+
+module.exports = router
