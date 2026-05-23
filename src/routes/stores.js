@@ -38,3 +38,18 @@ router.get('/', async (req, res) => {
 })
 
 module.exports = router
+router.patch('/:id', async (req, res) => {
+  try {
+    const { name, slug, phone, description } = req.body
+    const { data, error } = await supabase
+      .from('stores')
+      .update({ name, slug, phone, description })
+      .eq('id', req.params.id)
+      .select()
+      .single()
+    if (error) return res.status(500).json({ message: error.message })
+    res.json({ message: 'Store updated!', store: data })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
