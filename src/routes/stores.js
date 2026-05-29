@@ -53,3 +53,20 @@ router.patch('/:id', async (req, res) => {
     res.status(500).json({ message: err.message })
   }
 })
+router.get('/slug/:slug', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('stores')
+      .select('*')
+      .eq('slug', req.params.slug)
+      .single()
+    if (error || !data) return res.status(404).json({ message: 'Store not found' })
+    const { data: products } = await supabase
+      .from('products')
+      .select('*')
+      .eq('store_id', data.id)
+    res.json({ store: data, products: products || [] })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
