@@ -22,37 +22,6 @@ router.post('/', async (req, res) => {
   }
 })
 
-router.get('/', async (req, res) => {
-  const userId = req.query.userId
-  if (userId) {
-    const { data, error } = await supabase
-      .from('stores')
-      .select('*')
-      .eq('user_id', userId)
-    if (error) return res.status(500).json({ message: error.message })
-    return res.json({ stores: data })
-  }
-  const { data, error } = await supabase.from('stores').select('*')
-  if (error) return res.status(500).json({ message: error.message })
-  res.json({ stores: data })
-})
-
-module.exports = router
-router.patch('/:id', async (req, res) => {
-  try {
-    const { name, slug, phone, description } = req.body
-    const { data, error } = await supabase
-      .from('stores')
-      .update({ name, slug, phone, description })
-      .eq('id', req.params.id)
-      .select()
-      .single()
-    if (error) return res.status(500).json({ message: error.message })
-    res.json({ message: 'Store updated!', store: data })
-  } catch (err) {
-    res.status(500).json({ message: err.message })
-  }
-})
 router.get('/slug/:slug', async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -70,3 +39,36 @@ router.get('/slug/:slug', async (req, res) => {
     res.status(500).json({ message: err.message })
   }
 })
+
+router.get('/', async (req, res) => {
+  const userId = req.query.userId
+  if (userId) {
+    const { data, error } = await supabase
+      .from('stores')
+      .select('*')
+      .eq('user_id', userId)
+    if (error) return res.status(500).json({ message: error.message })
+    return res.json({ stores: data })
+  }
+  const { data, error } = await supabase.from('stores').select('*')
+  if (error) return res.status(500).json({ message: error.message })
+  res.json({ stores: data })
+})
+
+router.patch('/:id', async (req, res) => {
+  try {
+    const { name, slug, phone, description } = req.body
+    const { data, error } = await supabase
+      .from('stores')
+      .update({ name, slug, phone, description })
+      .eq('id', req.params.id)
+      .select()
+      .single()
+    if (error) return res.status(500).json({ message: error.message })
+    res.json({ message: 'Store updated!', store: data })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+module.exports = router
