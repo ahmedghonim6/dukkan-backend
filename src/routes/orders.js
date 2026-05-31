@@ -52,3 +52,15 @@ router.patch('/:id', async (req, res) => {
 })
 
 module.exports = router
+// Send WhatsApp to seller via store phone
+const { data: storeData } = await supabase
+  .from('stores')
+  .select('phone')
+  .eq('id', storeId)
+  .single()
+
+if (storeData?.phone) {
+  const msg = `🛍️ طلب جديد!\n\nالعميل: ${customerName}\nالتليفون: ${customerPhone}\nالعنوان: ${customerAddress}\nالإجمالي: ${total} جنيه`
+  const waLink = `https://api.whatsapp.com/send?phone=${storeData.phone.replace(/\D/g,'')}&text=${encodeURIComponent(msg)}`
+  console.log('WhatsApp link:', waLink)
+}
