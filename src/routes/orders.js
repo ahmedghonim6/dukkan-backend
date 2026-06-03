@@ -3,40 +3,68 @@ const router = express.Router()
 const supabase = require('../database')
 const axios = require('axios')
 
-const ULTRA_INSTANCE = 'instance178910'
-const ULTRA_TOKEN = 'zzf54tmm2vp7oie5'
-
 async function sendWhatsApp(phone, message) {
   try {
-    await axios.post(https://api.ultramsg.com//messages/chat, {
-      token: ULTRA_TOKEN, to: phone, body: message
+    await axios.post('https://api.ultramsg.com/instance178910/messages/chat', {
+      token: 'zzf54tmm2vp7oie5',
+      to: phone,
+      body: message
     })
-  } catch(e) { console.log('WhatsApp error:', e.message) }
+  } catch(e) {
+    console.log('WhatsApp error:', e.message)
+  }
 }
 
 router.post('/', async (req, res) => {
   try {
     const { customerName, customerPhone, customerAddress, storeId, total, items } = req.body
-    if (!customerName || !customerPhone || !storeId || !total) return res.status(400).json({ message: 'All fields required' })
-    const { data, error } = await supabase.from('orders').insert([{ customer_name: customerName, customer_phone: customerPhone, customer_address: customerAddress, store_id: storeId, total, status: 'pending' }]).select().single()
+    if (!customerName || !customerPhone || !storeId || !total) {
+      return res.status(400).json({ message: 'All fields required' })
+    }
+    const { data, error } = await supabase
+      .from('orders')
+      .insert([{
+        customer_name: customerName,
+        customer_phone: customerPhone,
+        customer_address: customerAddress,
+        store_id: storeId,
+        total,
+        status: 'pending'
+      }])
+      .select()
+      .single()
     if (error) return res.status(500).json({ message: error.message })
-    const { data: storeData } = await supabase.from('stores').select('phone, name').eq('id', storeId).single()
-    if (storeData?.phone) {
-      const msg = New Order!\n\nCustomer: \nPhone: \nAddress: \nTotal: \n\nItems:\n
+    const { data: storeData } = await supabase
+      .from('stores')
+      .select('phone, name')
+      .eq('id', storeId)
+      .single()
+    if (storeData && storeData.phone) {
+      const msg = 'New Order!\n\nCustomer: ' + customerName + '\nPhone: ' + customerPhone + '\nAddress: ' + customerAddress + '\nTotal: ' + total
       await sendWhatsApp(storeData.phone, msg)
     }
     res.status(201).json({ message: 'Order created!', order: data })
-  } catch (err) { res.status(500).json({ message: err.message }) }
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
 })
 
 router.get('/:storeId', async (req, res) => {
-  const { data, error } = await supabase.from('orders').select('*').eq('store_id', req.params.storeId)
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*')
+    .eq('store_id', req.params.storeId)
   if (error) return res.status(500).json({ message: error.message })
   res.json({ orders: data })
 })
 
 router.patch('/:id', async (req, res) => {
-  const { data, error } = await supabase.from('orders').update({ status: req.body.status }).eq('id', req.params.id).select().single()
+  const { data, error } = await supabase
+    .from('orders')
+    .update({ status: req.body.status })
+    .eq('id', req.params.id)
+    .select()
+    .single()
   if (error) return res.status(500).json({ message: error.message })
   res.json({ message: 'Order updated!', order: data })
 })
