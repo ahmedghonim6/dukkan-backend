@@ -43,6 +43,12 @@ router.post('/', async (req, res) => {
       const msg = 'New Order!\n\nCustomer: ' + customerName + '\nPhone: ' + customerPhone + '\nAddress: ' + customerAddress + '\nTotal: ' + total
       await sendWhatsApp(storeData.phone, msg)
     }
+      // Deduct stock
+if (items && items.length > 0) {
+  for (const item of items) {
+    await supabase.rpc('decrement_stock', { product_id: item.id, qty: item.qty })
+  }
+}
     res.status(201).json({ message: 'Order created!', order: data })
   } catch (err) {
     res.status(500).json({ message: err.message })
