@@ -18,4 +18,12 @@ router.get('/:storeId', async (req, res) => {
   res.json({ products: data })
 })
 
+router.patch("/:id", async (req, res) => {
+  try {
+    const { name, price, description, stock, options, relatedIds, images } = req.body
+    const { data, error } = await supabase.from("products").update({ name, price, description, stock, options, related_ids: relatedIds, images }).eq("id", req.params.id).select().single()
+    if (error) return res.status(500).json({ message: error.message })
+    res.json({ message: "Product updated!", product: data })
+  } catch (err) { res.status(500).json({ message: err.message }) }
+})
 module.exports = router
