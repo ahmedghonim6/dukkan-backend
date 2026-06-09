@@ -57,13 +57,14 @@ router.get('/', async (req, res) => {
 
 router.patch('/:id', async (req, res) => {
   try {
-    const { name, slug, phone, description, theme } = req.body
+    const { name, slug, phone, description, theme, customization } = req.body
     const updateData = {}
     if (name !== undefined) updateData.name = name
     if (slug !== undefined) updateData.slug = slug
     if (phone !== undefined) updateData.phone = phone
     if (description !== undefined) updateData.description = description
     if (theme !== undefined) updateData.theme = theme
+    if (customization !== undefined) updateData.customization = customization
     const { data, error } = await supabase
       .from('stores')
       .update(updateData)
