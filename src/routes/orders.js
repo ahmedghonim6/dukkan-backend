@@ -46,18 +46,16 @@ router.post('/', async (req, res) => {
       await sendWhatsApp(storeData.phone, msg)
     }
 
-    // Deduct stock
     if (items && items.length > 0) {
       for (const item of items) {
         await supabase.rpc('decrement_stock', { product_id: item.id, qty: item.qty })
       }
     }
 
-    // Create notification
     await supabase.from('notifications').insert([{
       store_id: storeId,
       type: 'new_order',
-      title: 'New Order! 🛍️',
+      title: 'New Order!',
       message: customerName + ' placed an order for ' + total
     }])
 
@@ -81,3 +79,10 @@ router.patch('/:id', async (req, res) => {
     .from('orders')
     .update({ status: req.body.status })
     .eq('id', req.params.id)
+    .select()
+    .single()
+  if (error) return res.status(500).json({ message: error.message })
+  res.json({ message: 'Order updated!', order: data })
+})
+
+module.exports = router
