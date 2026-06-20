@@ -34,21 +34,33 @@ router.post('/', async (req, res) => {
       .select()
       .single()
     if (error) return res.status(500).json({ message: error.message })
+
     const { data: storeData } = await supabase
       .from('stores')
       .select('phone, name')
       .eq('id', storeId)
       .single()
+
     if (storeData && storeData.phone) {
       const msg = 'New Order!\n\nCustomer: ' + customerName + '\nPhone: ' + customerPhone + '\nAddress: ' + customerAddress + '\nTotal: ' + total
       await sendWhatsApp(storeData.phone, msg)
     }
-      // Deduct stock
-if (items && items.length > 0) {
-  for (const item of items) {
-    await supabase.rpc('decrement_stock', { product_id: item.id, qty: item.qty })
-  }
-}
+
+    // Deduct stock
+    if (items && items.length > 0) {
+      for (const item of items) {
+        await supabase.rpc('decrement_stock', { product_id: item.id, qty: item.qty })
+      }
+    }
+
+    // Create notification
+    await supabase.from('notifications').insert([{
+      store_id: storeId,
+      type: 'new_order',
+      title: 'New Order! 🛍️',
+      message: customerName + ' placed an order for ' + total
+    }])
+
     res.status(201).json({ message: 'Order created!', order: data })
   } catch (err) {
     res.status(500).json({ message: err.message })
@@ -69,16 +81,3 @@ router.patch('/:id', async (req, res) => {
     .from('orders')
     .update({ status: req.body.status })
     .eq('id', req.params.id)
-    .select()
-    .single()
-  if (error) return res.status(500).json({ message: error.message })
-  res.json({ message: 'Order updated!', order: data })
-})
- // Create notification
- await supabase.from('notifications').insert([{
-  store_id: storeId,
-  type: 'new_order',
-  title: 'New Order! 🛍️',
-  message: customerName + ' placed an order for ' + total
- }])
-module.exports = router
