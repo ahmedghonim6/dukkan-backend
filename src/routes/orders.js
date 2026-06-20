@@ -74,5 +74,11 @@ router.patch('/:id', async (req, res) => {
   if (error) return res.status(500).json({ message: error.message })
   res.json({ message: 'Order updated!', order: data })
 })
-
+ // Create notification
+ await supabase.from('notifications').insert([{
+  store_id: storeId,
+  type: 'new_order',
+  title: 'New Order! 🛍️',
+  message: customerName + ' placed an order for ' + total
+ }])
 module.exports = router
