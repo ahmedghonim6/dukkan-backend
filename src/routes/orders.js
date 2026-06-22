@@ -29,8 +29,9 @@ router.post('/', async (req, res) => {
         customer_address: customerAddress,
         store_id: storeId,
         total,
-        status: 'pending'
-      }])
+       items: items || [],
+       status: 'pending'
+    }])
       .select()
       .single()
     if (error) return res.status(500).json({ message: error.message })
