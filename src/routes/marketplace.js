@@ -261,5 +261,35 @@ router.get('/analytics/:storeId', async (req, res) => {
     res.status(500).json({ message: err.message })
   }
 })
+// ══ FOLLOW STORE ══
+router.post('/stores/:storeId/follow', async (req, res) => {
+  try {
+    const { visitorId } = req.body
+    if (!visitorId) return res.status(400).json({ message: 'visitorId required' })
+    await supabase.from('mp_store_followers').upsert([{
+      store_id: req.params.storeId, visitor_id: visitorId
+    }], { onConflict: 'store_id,visitor_id' })
+    res.json({ followed: true })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
 
+// ══ REPORT ══
+router.post('/reports', async (req, res) => {
+  try {
+    const { entityType, entityId, reason, reasonCode, reporterSession } = req.body
+    if (!entityType || !entityId || !reason) {
+      return res.status(400).json({ message: 'entityType, entityId, reason required' })
+    }
+    await supabase.from('mp_reports').insert([{
+      entity_type: entityType, entity_id: entityId,
+      reason, reason_code: reasonCode || 'user_report',
+      reporter_session: reporterSession || null
+    }])
+    res.json({ reported: true })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
 module.exports = router
