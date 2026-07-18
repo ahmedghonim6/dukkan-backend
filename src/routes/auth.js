@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
 const router = express.Router()
 const supabase = require('../database')
-const SECRET = 'dukkan_secret_key_2025'
+const SECRET = process.env.JWT_SECRET
 
 router.post('/register', async (req, res) => {
   try {
