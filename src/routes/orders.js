@@ -17,7 +17,7 @@ async function sendWhatsApp(phone, message) {
 
 router.post('/', async (req, res) => {
   try {
-    const { customerName, customerPhone, customerAddress, storeId, total, items } = req.body
+    const { customerName, customerPhone, customerAddress, storeId, total, items, couponCode, discountAmount } = req.body
     if (!customerName || !customerPhone || !storeId || !total) {
       return res.status(400).json({ message: 'All fields required' })
     }
@@ -29,9 +29,10 @@ router.post('/', async (req, res) => {
         customer_address: customerAddress,
         store_id: storeId,
         total,
-       items: items || [],
+        coupon_code: couponCode || null,
+       discount_amount: discountAmount || 0,
        status: 'pending'
-    }])
+}])
       .select()
       .single()
     if (error) return res.status(500).json({ message: error.message })
