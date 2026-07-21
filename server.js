@@ -1,4 +1,32 @@
 require('dotenv').config()
+const rateLimit = require('express-rate-limit')
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { message: 'Too many attempts. Please try again in 15 minutes.' }
+})
+
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  message: { message: 'Too many requests. Please slow down.' }
+})
+const rateLimit = require('express-rate-limit')
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // 10 attempts per window per IP
+  message: { message: 'Too many attempts. Please try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false
+})
+
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 100,
+  message: { message: 'Too many requests. Please slow down.' }
+})
 const express = require('express')
 const cors = require('cors')
 const app = express()
@@ -7,7 +35,9 @@ app.use(express.json({ strict: false }))
 app.use(express.urlencoded({ extended: true }))
 app.use((req,res,next)=>{console.log('Body:',req.body);next()})
 const authRoutes = require('./src/routes/auth')
-app.use('/api/auth', authRoutes)
+app.use('/api/auth', authLimiter, authRoutes)
+app.use('/api', apiLimiter)
+app.use('/api', apiLimiter) // general limit on everything else
 const storeRoutes = require('./src/routes/stores')
 app.use('/api/stores', storeRoutes)
 const productRoutes = require('./src/routes/products')
