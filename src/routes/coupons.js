@@ -1,8 +1,9 @@
 const express = require('express')
 const router = express.Router()
 const supabase = require('../database')
+const { requireAuth, requireStoreOwnership } = require('../middleware/auth')
 
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, requireStoreOwnership(req => req.body.storeId), async (req, res) => {
   try {
     const { storeId, code, type, value, minOrder, maxUses, expiresAt } = req.body
     if (!storeId || !code || !type || !value) {
@@ -27,7 +28,7 @@ router.post('/', async (req, res) => {
   }
 })
 
-router.get('/:storeId', async (req, res) => {
+router.get('/:storeId', requireAuth, requireStoreOwnership(req => req.params.storeId), async (req, res) => {
   const { data, error } = await supabase
     .from('coupons')
     .select('*')
@@ -37,6 +38,7 @@ router.get('/:storeId', async (req, res) => {
   res.json({ coupons: data })
 })
 
+// Public: customers validate a coupon code at checkout without being logged in
 router.post('/validate', async (req, res) => {
   try {
     const { code, storeId, orderTotal } = req.body
@@ -68,6 +70,7 @@ router.post('/validate', async (req, res) => {
   }
 })
 
+// Public: called right after a customer's order is placed successfully
 router.patch('/:id/use', async (req, res) => {
   const { data: coupon } = await supabase.from('coupons').select('used_count').eq('id', req.params.id).single()
   if (coupon) {
@@ -76,7 +79,12 @@ router.patch('/:id/use', async (req, res) => {
   res.json({ message: 'Coupon usage recorded' })
 })
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAuth, async (req, res, next) => {
+  const { data } = await supabase.from('coupons').select('store_id').eq('id', req.params.id).single()
+  if (!data) return res.status(404).json({ message: 'Coupon not found' })
+  req.body.storeId = data.store_id
+  requireStoreOwnership(r => r.body.storeId)(req, res, next)
+}, async (req, res) => {
   const { error } = await supabase.from('coupons').delete().eq('id', req.params.id)
   if (error) return res.status(500).json({ message: error.message })
   res.json({ message: 'Coupon deleted' })

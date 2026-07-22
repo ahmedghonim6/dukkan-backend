@@ -2,8 +2,8 @@ const express = require('express')
 const router = express.Router()
 const supabase = require('../database')
 const { getAdapter } = require('../services/shippingProviders')
+const { requireAuth, requireStoreOwnership } = require('../middleware/auth')
 
-// ══ LOG HELPER ══
 async function logShipping(storeId, shipmentId, providerCode, action, level, message, payload) {
   try {
     await supabase.from('shipping_logs').insert([{
@@ -13,7 +13,6 @@ async function logShipping(storeId, shipmentId, providerCode, action, level, mes
   } catch (e) { console.log('Log error:', e.message) }
 }
 
-// ══ GET ALL AVAILABLE PROVIDERS ══
 router.get('/providers', async (req, res) => {
   const { data, error } = await supabase
     .from('shipping_providers')
@@ -24,8 +23,7 @@ router.get('/providers', async (req, res) => {
   res.json({ providers: data })
 })
 
-// ══ GET MERCHANT'S CONNECTED ACCOUNTS ══
-router.get('/accounts/:storeId', async (req, res) => {
+router.get('/accounts/:storeId', requireAuth, requireStoreOwnership(req => req.params.storeId), async (req, res) => {
   const { data, error } = await supabase
     .from('shipping_accounts')
     .select('*')
@@ -34,8 +32,7 @@ router.get('/accounts/:storeId', async (req, res) => {
   res.json({ accounts: data })
 })
 
-// ══ CONNECT A PROVIDER ══
-router.post('/connect', async (req, res) => {
+router.post('/connect', requireAuth, requireStoreOwnership(req => req.body.storeId), async (req, res) => {
   try {
     const { storeId, providerCode, credentials } = req.body
     if (!storeId || !providerCode) {
@@ -74,8 +71,17 @@ router.post('/connect', async (req, res) => {
   }
 })
 
-// ══ TEST CONNECTION ══
-router.post('/test/:accountId', async (req, res) => {
+async function getStoreIdFromAccount(accountId) {
+  const { data } = await supabase.from('shipping_accounts').select('store_id').eq('id', accountId).single()
+  return data?.store_id
+}
+
+router.post('/test/:accountId', requireAuth, async (req, res, next) => {
+  const storeId = await getStoreIdFromAccount(req.params.accountId)
+  if (!storeId) return res.status(404).json({ message: 'Account not found' })
+  req.body.storeId = storeId
+  requireStoreOwnership(r => r.body.storeId)(req, res, next)
+}, async (req, res) => {
   try {
     const { data: account, error } = await supabase
       .from('shipping_accounts')
@@ -102,15 +108,23 @@ router.post('/test/:accountId', async (req, res) => {
   }
 })
 
-// ══ DISCONNECT PROVIDER ══
-router.delete('/accounts/:accountId', async (req, res) => {
+router.delete('/accounts/:accountId', requireAuth, async (req, res, next) => {
+  const storeId = await getStoreIdFromAccount(req.params.accountId)
+  if (!storeId) return res.status(404).json({ message: 'Account not found' })
+  req.body.storeId = storeId
+  requireStoreOwnership(r => r.body.storeId)(req, res, next)
+}, async (req, res) => {
   const { error } = await supabase.from('shipping_accounts').delete().eq('id', req.params.accountId)
   if (error) return res.status(500).json({ message: error.message })
   res.json({ message: 'Disconnected' })
 })
 
-// ══ TOGGLE AUTO-CREATE SHIPMENT ══
-router.patch('/accounts/:accountId/auto-create', async (req, res) => {
+router.patch('/accounts/:accountId/auto-create', requireAuth, async (req, res, next) => {
+  const storeId = await getStoreIdFromAccount(req.params.accountId)
+  if (!storeId) return res.status(404).json({ message: 'Account not found' })
+  req.body.storeId = storeId
+  requireStoreOwnership(r => r.body.storeId)(req, res, next)
+}, async (req, res) => {
   const { data, error } = await supabase
     .from('shipping_accounts')
     .update({ auto_create: req.body.autoCreate })
@@ -121,8 +135,7 @@ router.patch('/accounts/:accountId/auto-create', async (req, res) => {
   res.json({ message: 'Updated', account: data })
 })
 
-// ══ CREATE SHIPMENT FROM ORDER ══
-router.post('/shipments', async (req, res) => {
+router.post('/shipments', requireAuth, requireStoreOwnership(req => req.body.storeId), async (req, res) => {
   try {
     const { orderId, storeId, providerCode, customerName, customerPhone, customerAddress, city, governorate, codAmount, shippingCost } = req.body
     if (!orderId || !storeId || !providerCode) {
@@ -176,8 +189,7 @@ router.post('/shipments', async (req, res) => {
   }
 })
 
-// ══ GET SHIPMENT BY ORDER ══
-router.get('/shipments/order/:orderId', async (req, res) => {
+router.get('/shipments/order/:orderId', requireAuth, async (req, res) => {
   const { data, error } = await supabase
     .from('shipments')
     .select('*')
@@ -186,11 +198,24 @@ router.get('/shipments/order/:orderId', async (req, res) => {
     .limit(1)
     .maybeSingle()
   if (error) return res.status(500).json({ message: error.message })
+  if (data && data.store_id) {
+    const { data: store } = await supabase.from('stores').select('user_id').eq('id', data.store_id).single()
+    if (!store || store.user_id !== req.userId) return res.status(403).json({ message: 'Forbidden' })
+  }
   res.json({ shipment: data })
 })
 
-// ══ GET SHIPMENT TIMELINE ══
-router.get('/shipments/:shipmentId/events', async (req, res) => {
+async function getStoreIdFromShipment(shipmentId) {
+  const { data } = await supabase.from('shipments').select('store_id').eq('id', shipmentId).single()
+  return data?.store_id
+}
+
+router.get('/shipments/:shipmentId/events', requireAuth, async (req, res, next) => {
+  const storeId = await getStoreIdFromShipment(req.params.shipmentId)
+  if (!storeId) return res.status(404).json({ message: 'Shipment not found' })
+  req.body.storeId = storeId
+  requireStoreOwnership(r => r.body.storeId)(req, res, next)
+}, async (req, res) => {
   const { data, error } = await supabase
     .from('shipment_events')
     .select('*')
@@ -200,8 +225,12 @@ router.get('/shipments/:shipmentId/events', async (req, res) => {
   res.json({ events: data })
 })
 
-// ══ TRACK SHIPMENT (refresh status from provider) ══
-router.post('/shipments/:shipmentId/track', async (req, res) => {
+router.post('/shipments/:shipmentId/track', requireAuth, async (req, res, next) => {
+  const storeId = await getStoreIdFromShipment(req.params.shipmentId)
+  if (!storeId) return res.status(404).json({ message: 'Shipment not found' })
+  req.body.storeId = storeId
+  requireStoreOwnership(r => r.body.storeId)(req, res, next)
+}, async (req, res) => {
   try {
     const { data: shipment, error } = await supabase
       .from('shipments')
@@ -229,7 +258,6 @@ router.post('/shipments/:shipmentId/track', async (req, res) => {
         shipment_id: shipment.id, status: trackResult.status, note: 'Status updated from tracking'
       }])
 
-      // Auto-sync order status
       const orderStatusMap = { delivered: 'delivered', returned: 'cancelled', cancelled: 'cancelled' }
       if (orderStatusMap[trackResult.status]) {
         await supabase.from('orders').update({ status: orderStatusMap[trackResult.status] }).eq('id', shipment.order_id)
@@ -242,8 +270,12 @@ router.post('/shipments/:shipmentId/track', async (req, res) => {
   }
 })
 
-// ══ CANCEL SHIPMENT ══
-router.post('/shipments/:shipmentId/cancel', async (req, res) => {
+router.post('/shipments/:shipmentId/cancel', requireAuth, async (req, res, next) => {
+  const storeId = await getStoreIdFromShipment(req.params.shipmentId)
+  if (!storeId) return res.status(404).json({ message: 'Shipment not found' })
+  req.body.storeId = storeId
+  requireStoreOwnership(r => r.body.storeId)(req, res, next)
+}, async (req, res) => {
   try {
     const { data: shipment } = await supabase
       .from('shipments')
@@ -271,8 +303,7 @@ router.post('/shipments/:shipmentId/cancel', async (req, res) => {
   }
 })
 
-// ══ SHIPPING ANALYTICS ══
-router.get('/analytics/:storeId', async (req, res) => {
+router.get('/analytics/:storeId', requireAuth, requireStoreOwnership(req => req.params.storeId), async (req, res) => {
   const { data: shipments, error } = await supabase
     .from('shipments')
     .select('*')
@@ -300,7 +331,7 @@ router.get('/analytics/:storeId', async (req, res) => {
   })
 })
 
-// ══ PUBLIC TRACKING (for customers) ══
+// Public: customers can track their own shipment with just the tracking number
 router.get('/track/:trackingNumber', async (req, res) => {
   const { data: shipment, error } = await supabase
     .from('shipments')
@@ -318,7 +349,6 @@ router.get('/track/:trackingNumber', async (req, res) => {
   res.json({ shipment, events: events || [] })
 })
 
-// ══ WEBHOOK RECEIVER (for future real providers) ══
 router.post('/webhook/:providerCode', async (req, res) => {
   try {
     await supabase.from('shipping_webhooks').insert([{
