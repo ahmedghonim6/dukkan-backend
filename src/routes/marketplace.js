@@ -1,8 +1,10 @@
 const express = require('express')
 const router = express.Router()
 const supabase = require('../database')
+const { requireAuth, requireStoreOwnership } = require('../middleware/auth')
 
-// ══ GET MARKETPLACE HOME DATA ══
+// ══ PUBLIC BROWSING ROUTES (no auth — anyone can discover the marketplace) ══
+
 router.get('/home', async (req, res) => {
   try {
     const [storesRes, productsRes, categoriesRes] = await Promise.all([
@@ -20,14 +22,12 @@ router.get('/home', async (req, res) => {
   }
 })
 
-// ══ GET ALL CATEGORIES ══
 router.get('/categories', async (req, res) => {
   const { data, error } = await supabase.from('mp_categories').select('*').eq('is_active', true).order('sort_order')
   if (error) return res.status(500).json({ message: error.message })
   res.json({ categories: data })
 })
 
-// ══ SEARCH PRODUCTS ══
 router.get('/search', async (req, res) => {
   try {
     const { q, category, min_price, max_price, sort = 'popular', page = 1, limit = 20 } = req.query
@@ -50,7 +50,6 @@ router.get('/search', async (req, res) => {
     const { data, error, count } = await query
     if (error) throw error
 
-    // Log search
     if (q) {
       await supabase.from('mp_search_logs').insert([{
         query: q,
@@ -66,7 +65,6 @@ router.get('/search', async (req, res) => {
   }
 })
 
-// ══ GET STORE MARKETPLACE PROFILE ══
 router.get('/stores/:storeId', async (req, res) => {
   try {
     const [profileRes, productsRes, reviewsRes] = await Promise.all([
@@ -76,7 +74,6 @@ router.get('/stores/:storeId', async (req, res) => {
     ])
     if (!profileRes.data) return res.status(404).json({ message: 'Store not found in marketplace' })
 
-    // Track view event
     await supabase.from('mp_events').insert([{
       event_type: 'store_viewed',
       store_id: req.params.storeId,
@@ -93,7 +90,6 @@ router.get('/stores/:storeId', async (req, res) => {
   }
 })
 
-// ══ GET ALL MARKETPLACE STORES ══
 router.get('/stores', async (req, res) => {
   try {
     const { category, page = 1, limit = 12 } = req.query
@@ -118,11 +114,81 @@ router.get('/stores', async (req, res) => {
   }
 })
 
-// ══ JOIN MARKETPLACE (Merchant opts in) ══
-router.post('/join', async (req, res) => {
+router.post('/reviews', async (req, res) => {
+  try {
+    const { storeId, reviewerName, rating, title, comment } = req.body
+    if (!storeId || !reviewerName || !rating) return res.status(400).json({ message: 'storeId, reviewerName, rating required' })
+    const { data, error } = await supabase.from('mp_store_reviews')
+      .insert([{ store_id: storeId, reviewer_name: reviewerName, rating, title, comment }])
+      .select().single()
+    if (error) throw error
+    res.status(201).json({ message: 'Review submitted!', review: data })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+router.post('/stores/:storeId/follow', async (req, res) => {
+  try {
+    const { visitorId } = req.body
+    if (!visitorId) return res.status(400).json({ message: 'visitorId required' })
+    await supabase.from('mp_store_followers').upsert([{
+      store_id: req.params.storeId, visitor_id: visitorId
+    }], { onConflict: 'store_id,visitor_id' })
+    res.json({ followed: true })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+router.post('/reports', async (req, res) => {
+  try {
+    const { entityType, entityId, reason, reasonCode, reporterSession } = req.body
+    if (!entityType || !entityId || !reason) {
+      return res.status(400).json({ message: 'entityType, entityId, reason required' })
+    }
+    await supabase.from('mp_reports').insert([{
+      entity_type: entityType, entity_id: entityId,
+      reason, reason_code: reasonCode || 'user_report',
+      reporter_session: reporterSession || null
+    }])
+    res.json({ reported: true })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+router.post('/events', async (req, res) => {
+  try {
+    const { eventType, productId, storeId, sessionId, metadata } = req.body
+    await supabase.from('mp_events').insert([{
+      event_type: eventType, product_id: productId, store_id: storeId,
+      session_id: sessionId, metadata: metadata || {}
+    }])
+    if (productId && eventType === 'product_viewed') {
+      await supabase.rpc('increment_product_view', { p_product_id: productId })
+    }
+    res.json({ tracked: true })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+// Public: anyone browsing the marketplace can see a store's trust score/grade
+router.get('/stores/:storeId/trust-score', async (req, res) => {
+  const { data } = await supabase
+    .from('mp_trust_scores')
+    .select('total_score, grade, completed_orders')
+    .eq('store_id', req.params.storeId)
+    .single()
+  res.json({ trust_score: data || null })
+})
+
+// ══ MERCHANT-ONLY ROUTES (require ownership of the store) ══
+
+router.post('/join', requireAuth, requireStoreOwnership(req => req.body.storeId), async (req, res) => {
   try {
     const { storeId, primaryCategory, description } = req.body
-    if (!storeId) return res.status(400).json({ message: 'storeId required' })
 
     const { data: storeData } = await supabase.from('stores').select('name,slug,description').eq('id', storeId).single()
     if (!storeData) return res.status(404).json({ message: 'Store not found' })
@@ -153,8 +219,7 @@ router.post('/join', async (req, res) => {
   }
 })
 
-// ══ LEAVE MARKETPLACE ══
-router.post('/leave', async (req, res) => {
+router.post('/leave', requireAuth, requireStoreOwnership(req => req.body.storeId), async (req, res) => {
   try {
     const { storeId } = req.body
     await supabase.from('mp_store_profiles').update({ is_enabled: false }).eq('store_id', storeId)
@@ -166,14 +231,17 @@ router.post('/leave', async (req, res) => {
   }
 })
 
-// ══ PUBLISH PRODUCT TO MARKETPLACE ══
-router.post('/products/publish', async (req, res) => {
+router.post('/products/publish', requireAuth, requireStoreOwnership(req => req.body.storeId), async (req, res) => {
   try {
     const { productId, storeId, categoryId, tags } = req.body
-    if (!productId || !storeId) return res.status(400).json({ message: 'productId and storeId required' })
+    if (!productId) return res.status(400).json({ message: 'productId required' })
 
     const { data: settings } = await supabase.from('mp_merchant_settings').select('marketplace_enabled').eq('store_id', storeId).single()
     if (!settings?.marketplace_enabled) return res.status(403).json({ message: 'Store not in marketplace. Join first.' })
+
+    // Confirm the product actually belongs to this store before publishing it
+    const { data: product } = await supabase.from('products').select('id, store_id').eq('id', productId).single()
+    if (!product || product.store_id !== storeId) return res.status(403).json({ message: 'This product does not belong to your store' })
 
     const { data, error } = await supabase.from('mp_product_profiles').upsert([{
       product_id: productId, store_id: storeId, category_id: categoryId, tags: tags || [], is_enabled: true
@@ -186,8 +254,12 @@ router.post('/products/publish', async (req, res) => {
   }
 })
 
-// ══ UNPUBLISH PRODUCT ══
-router.post('/products/unpublish', async (req, res) => {
+router.post('/products/unpublish', requireAuth, async (req, res, next) => {
+  const { data } = await supabase.from('mp_product_profiles').select('store_id').eq('product_id', req.body.productId).single()
+  if (!data) return res.status(404).json({ message: 'Product not found in marketplace' })
+  req.body.storeId = data.store_id
+  requireStoreOwnership(r => r.body.storeId)(req, res, next)
+}, async (req, res) => {
   try {
     const { productId } = req.body
     await supabase.from('mp_product_profiles').update({ is_enabled: false }).eq('product_id', productId)
@@ -197,53 +269,19 @@ router.post('/products/unpublish', async (req, res) => {
   }
 })
 
-// ══ TRACK EVENT ══
-router.post('/events', async (req, res) => {
-  try {
-    const { eventType, productId, storeId, sessionId, metadata } = req.body
-    await supabase.from('mp_events').insert([{
-      event_type: eventType, product_id: productId, store_id: storeId,
-      session_id: sessionId, metadata: metadata || {}
-    }])
-    if (productId && eventType === 'product_viewed') {
-      await supabase.rpc('increment_product_view', { p_product_id: productId })
-    }
-    res.json({ tracked: true })
-  } catch (err) {
-    res.status(500).json({ message: err.message })
-  }
-})
-
-// ══ GET MERCHANT MARKETPLACE SETTINGS ══
-router.get('/settings/:storeId', async (req, res) => {
+router.get('/settings/:storeId', requireAuth, requireStoreOwnership(req => req.params.storeId), async (req, res) => {
   const { data } = await supabase.from('mp_merchant_settings').select('*').eq('store_id', req.params.storeId).single()
   const { data: profile } = await supabase.from('mp_store_profiles').select('*').eq('store_id', req.params.storeId).single()
-  res.json({ settings: data, profile })
+  const { data: trust_score } = await supabase.from('mp_trust_scores').select('*').eq('store_id', req.params.storeId).single()
+  res.json({ settings: data, profile, trust_score })
 })
 
-// ══ GET MARKETPLACE NOTIFICATIONS ══
-router.get('/notifications/:storeId', async (req, res) => {
+router.get('/notifications/:storeId', requireAuth, requireStoreOwnership(req => req.params.storeId), async (req, res) => {
   const { data } = await supabase.from('mp_notifications').select('*').eq('store_id', req.params.storeId).order('created_at', { ascending: false }).limit(20)
   res.json({ notifications: data || [] })
 })
 
-// ══ SUBMIT STORE REVIEW ══
-router.post('/reviews', async (req, res) => {
-  try {
-    const { storeId, reviewerName, rating, title, comment } = req.body
-    if (!storeId || !reviewerName || !rating) return res.status(400).json({ message: 'storeId, reviewerName, rating required' })
-    const { data, error } = await supabase.from('mp_store_reviews')
-      .insert([{ store_id: storeId, reviewer_name: reviewerName, rating, title, comment }])
-      .select().single()
-    if (error) throw error
-    res.status(201).json({ message: 'Review submitted!', review: data })
-  } catch (err) {
-    res.status(500).json({ message: err.message })
-  }
-})
-
-// ══ GET MARKETPLACE ANALYTICS FOR MERCHANT ══
-router.get('/analytics/:storeId', async (req, res) => {
+router.get('/analytics/:storeId', requireAuth, requireStoreOwnership(req => req.params.storeId), async (req, res) => {
   try {
     const [eventsRes, productsRes] = await Promise.all([
       supabase.from('mp_events').select('event_type').eq('store_id', req.params.storeId),
@@ -261,35 +299,5 @@ router.get('/analytics/:storeId', async (req, res) => {
     res.status(500).json({ message: err.message })
   }
 })
-// ══ FOLLOW STORE ══
-router.post('/stores/:storeId/follow', async (req, res) => {
-  try {
-    const { visitorId } = req.body
-    if (!visitorId) return res.status(400).json({ message: 'visitorId required' })
-    await supabase.from('mp_store_followers').upsert([{
-      store_id: req.params.storeId, visitor_id: visitorId
-    }], { onConflict: 'store_id,visitor_id' })
-    res.json({ followed: true })
-  } catch (err) {
-    res.status(500).json({ message: err.message })
-  }
-})
 
-// ══ REPORT ══
-router.post('/reports', async (req, res) => {
-  try {
-    const { entityType, entityId, reason, reasonCode, reporterSession } = req.body
-    if (!entityType || !entityId || !reason) {
-      return res.status(400).json({ message: 'entityType, entityId, reason required' })
-    }
-    await supabase.from('mp_reports').insert([{
-      entity_type: entityType, entity_id: entityId,
-      reason, reason_code: reasonCode || 'user_report',
-      reporter_session: reporterSession || null
-    }])
-    res.json({ reported: true })
-  } catch (err) {
-    res.status(500).json({ message: err.message })
-  }
-})
 module.exports = router
